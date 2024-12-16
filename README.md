@@ -3,3 +3,5 @@ A simple tool to analyze log files of USB captures. Intended to analyze captures
 ![](/Images/MainWindow.png)
 
 Currently only USB 2.0 is supported and only Setup-Packets are parsed. Currently, only descriptors for MIDI, NCM and COM-Emulation using CDC are parsed.
+
+If you want a specific descriptor supported or a specific input format, feel free to create an issue. For inputs, please provide a sample capture.
