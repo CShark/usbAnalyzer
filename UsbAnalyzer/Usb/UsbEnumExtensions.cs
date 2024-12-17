@@ -15,6 +15,36 @@ namespace UsbAnalyzer.Usb {
         }
     }
 
+    public class OffsetAttribute : Attribute {
+        public int Order { get; }
+        public OffsetAttribute(int order) {
+            Order = order;
+        }
+    }
+
+    public class StringTableAttribute : Attribute;
+
+    public class BcdDisplayAttribute : Attribute;
+
+    public class HideValueAttribute : Attribute;
+
+    public class HelperAttribute : Attribute;
+
+    public class ReadableAccessorAttribute : Attribute {
+        public string PropertyName { get; }
+
+        public ReadableAccessorAttribute(string propertyName) {
+            PropertyName = propertyName;
+        }
+    }
+
+    public class GroupPropertyAttribute : Attribute {
+        public string ParentProperty { get; }
+        public GroupPropertyAttribute(string parentProperty) {
+            ParentProperty = parentProperty;
+        }
+    }
+
     public static class UsbEnumExtensions {
         public static string ToReadableString(this Enum value) {
             var fieldInfo = value.GetType().GetField(value.ToString());

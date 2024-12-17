@@ -40,10 +40,11 @@ namespace UsbAnalyzer.Usb {
             TreeViewData.Clear();
             if (DataContext is UsbLogPacketGroupSetup packet) {
                 // parse setup data
-                TreeViewData.Add(packet.SetupData.BuildTree());
+                TreeViewData.Add(TreeViewEntry.BuildTree(packet.SetupData));
 
                 foreach (var desc in packet.Descriptors) {
-                    TreeViewData.Add(desc.BuildTree());
+                    TreeViewData.Add(TreeViewEntry.BuildTree(desc));
+                    //TreeViewData.Add(desc.BuildTree());
                 }
 
                 foreach (var item in TreeViewData) {

@@ -14,19 +14,30 @@ namespace UsbAnalyzer.Usb.Audio {
         External = 2,
     }
 
-    [Fallback("Reserved")]
-    public enum AudioEpGeneralLockDelayUnits {
-        Undefined = 0,
-        Milliseconds = 1,
+    public class PinInfo {
+        [Offset(0)]
+        [Description("Source ID")]
+        public byte SourceId { get; }
 
-        [Description("PCM Samples")]
-        PcmSamples = 2
+        [Offset(1)]
+        [Description("Source Pin")]
+        public byte SourcePin { get; }
+
+        public PinInfo(byte sourceId, byte sourcePin) {
+            SourceId = sourceId;
+            SourcePin = sourcePin;
+        }
     }
 
     public class UsbAudioEndpoint : UsbEndpointDescriptor {
+        [Offset(7)]
+        [ReadableAccessor(nameof(RefreshHelper))]
         public byte Refresh { get; }
 
+        [Offset(8)]
         public byte SynchAddress { get; }
+
+        public string RefreshHelper => $"{Math.Pow(2, Refresh)}ms";
 
         public UsbAudioEndpoint(byte[] data) : base(data) {
             try {
@@ -37,19 +48,14 @@ namespace UsbAnalyzer.Usb.Audio {
             } catch {
             }
         }
-
-        protected override TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return base.BuildTree([
-                new("Refresh", Refresh, $"{Math.Pow(2, Refresh)}ms"),
-                new("Synch Address", SynchAddress),
-                ..children
-            ]);
-        }
     }
 
     public class UsbClassMidiHeader : UsbClassGeneric {
+        [Offset(3)]
+        [BcdDisplay]
         public ushort MSC { get; }
 
+        [Offset(5)]
         public ushort TotalLength { get; }
 
         public UsbClassMidiHeader(byte[] data) : base(data) {
@@ -61,22 +67,17 @@ namespace UsbAnalyzer.Usb.Audio {
             }
         }
 
-        protected override TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return base.BuildTree([
-                new("Specification Version", MSC, ParseBcd(MSC)),
-                new("Total Length", TotalLength),
-                ..children
-            ]);
-        }
-
         protected override string GetSubtypeLabel() => "Header";
     }
 
     public class UsbClassMidiJackIn : UsbClassGeneric {
+        [Offset(3)]
         public JackType JackType { get; }
 
+        [Offset(4)]
         public byte JackId { get; }
 
+        [Offset(5)]
         public byte JackIdx { get; }
 
         public UsbClassMidiJackIn(byte[] data) : base(data) {
@@ -88,28 +89,23 @@ namespace UsbAnalyzer.Usb.Audio {
             }
         }
 
-        protected override TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return base.BuildTree([
-                new("Jack Type", JackType),
-                new("Jack ID", JackId),
-                new("String Table Indices", [
-                    new("Jack", JackIdx)
-                ]),
-                ..children
-            ]);
-        }
-
         protected override string GetSubtypeLabel() => "Jack In";
     }
 
     public class UsbClassMidiJackOut : UsbClassGeneric {
+        [Offset(3)]
         public JackType JackType { get; }
+
+        [Offset(4)]
         public byte JackId { get; }
 
+        [Offset(5)]
         public byte InputPins { get; }
 
-        public List<(byte SourceId, byte SourcePin)> Pins { get; } = new();
+        [Offset(6)]
+        public List<PinInfo> Pins { get; } = new();
 
+        [Offset(7)]
         public byte JackIdx { get; }
 
         public UsbClassMidiJackOut(byte[] data) : base(data) {
@@ -122,7 +118,7 @@ namespace UsbAnalyzer.Usb.Audio {
                     var id = data[6 + i * 2];
                     var pin = data[7 + i * 2];
 
-                    Pins.Add((id, pin));
+                    Pins.Add(new(id, pin));
                 }
 
                 JackIdx = data[6 + InputPins * 2];
@@ -130,43 +126,52 @@ namespace UsbAnalyzer.Usb.Audio {
             }
         }
 
-        protected override TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return base.BuildTree([
-                new("Jack Type", JackType),
-                new("Jack ID", JackId),
-                new("Number of Input Pins", InputPins),
-                new("Pins",
-                    Pins.Select((x, i) => new TreeViewEntry($"#{i}", [
-                        new("Source ID", x.SourceId),
-                        new("Source Pin", x.SourcePin)
-                    ])).ToArray()
-                ),
-                new("String Table Indices", [
-                    new("Jack", JackIdx)
-                ]),
-                ..children
-            ]);
-        }
-
         protected override string GetSubtypeLabel() => "Jack Out";
     }
 
     public class UsbClassMidiElement : UsbClassGeneric {
+        [Flags]
+        public enum MidiCapabilities {
+            None = 0,
+            CustomUndefined = 0x01,
+            MidiClock = 0x02,
+            MidiTimeCode = 0x04,
+            MidiMachineControl = 0x08,
+            GM1 = 0x10,
+            GM2 = 0x20,
+            GS = 0x40,
+            XG = 0x80,
+            EFX = 0x0100, // Second byte starts here
+            MidiPatchBay = 0x0200,
+            DLS1 = 0x0400,
+            DLS2 = 0x0800,
+        }
+
+        [Offset(3)]
         public byte ElementId { get; }
 
+        [Offset(4)]
         public byte InputPins { get; }
 
-        public List<(byte SourceId, byte SourcePin)> Pins { get; } = new();
+        [Offset(5)]
+        public List<PinInfo> Pins { get; } = new();
 
+        [Offset(6)]
         public byte OutputPins { get; }
 
+        [Offset(7)]
         public byte InTerminalLink { get; }
+
+        [Offset(8)]
         public byte OutTerminalLink { get; }
 
+        [Offset(9)]
         public byte CapsSize { get; }
 
-        public List<byte> Caps { get; } = new();
+        [Offset(10)]
+        public MidiCapabilities Caps { get; }
 
+        [Offset(11)]
         public byte ElementIdx { get; }
 
         public UsbClassMidiElement(byte[] data) : base(data) {
@@ -178,7 +183,7 @@ namespace UsbAnalyzer.Usb.Audio {
                     var id = data[5 + i * 2];
                     var pin = data[6 + i * 2];
 
-                    Pins.Add((id, pin));
+                    Pins.Add(new(id, pin));
                 }
 
                 data = data[(6 + InputPins * 2)..];
@@ -187,103 +192,26 @@ namespace UsbAnalyzer.Usb.Audio {
                 OutTerminalLink = data[2];
                 CapsSize = data[3];
 
+                uint caps = 0;
                 for (int i = 0; i < CapsSize; i++) {
-                    Caps.Add(data[4 + i]);
+                    caps |= (uint)(data[4 + i] << (i * 8));
                 }
+
+                Caps = (MidiCapabilities)caps;
 
                 ElementIdx = data[5 + CapsSize];
             } catch {
             }
         }
 
-        protected override TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return base.BuildTree([
-                new("Element ID", ElementId),
-                new("Number of Input Pins", InputPins),
-                new("Pins",
-                    Pins.Select((x, i) => new TreeViewEntry($"Pin {i}", [
-                        new("Source ID", x.SourceId),
-                        new("Source Pin", x.SourcePin)
-                    ])).ToArray()
-                ),
-                new("Number of Output Pins", OutputPins),
-                new("Terminal Link", [
-                    new("In", InTerminalLink),
-                    new("Out", OutTerminalLink)
-                ]),
-                new("Capabilities Size", CapsSize),
-                new("Capabilities", Caps.Aggregate("", (s, b) => $"{s} {b:X2}"), BuildCaps()),
-                new("String Table Indices", [
-                    new("Element", ElementIdx)
-                ]),
-                ..children
-            ]);
-        }
-
-        private TreeViewEntry[] BuildCaps() {
-            var list = new List<TreeViewEntry>();
-
-            if (Caps.Count >= 1) {
-                if ((Caps[0] & 0x01) != 0) {
-                    list.Add(new("Custom Undefined"));
-                }
-
-                if ((Caps[0] & 0x02) != 0) {
-                    list.Add(new("Midi Clock"));
-                }
-
-                if ((Caps[0] & 0x04) != 0) {
-                    list.Add(new("Midi Time Code"));
-                }
-
-                if ((Caps[0] & 0x08) != 0) {
-                    list.Add(new("Midi Machine Control"));
-                }
-
-                if ((Caps[0] & 0x10) != 0) {
-                    list.Add(new("GM1"));
-                }
-
-                if ((Caps[0] & 0x20) != 0) {
-                    list.Add(new("GM2"));
-                }
-
-                if ((Caps[0] & 0x40) != 0) {
-                    list.Add(new("GS"));
-                }
-
-                if ((Caps[0] & 0x80) != 0) {
-                    list.Add(new("XG"));
-                }
-            }
-
-            if (Caps.Count >= 2) {
-                if ((Caps[1] & 0x01) != 0) {
-                    list.Add(new("EFX"));
-                }
-
-                if ((Caps[1] & 0x02) != 0) {
-                    list.Add(new("Midi Patch Bay"));
-                }
-
-                if ((Caps[1] & 0x04) != 0) {
-                    list.Add(new("DLS1"));
-                }
-
-                if ((Caps[1] & 0x08) != 0) {
-                    list.Add(new("DLS2"));
-                }
-            }
-
-            return list.ToArray();
-        }
-
         protected override string GetSubtypeLabel() => "Element";
     }
 
     public class UsbClassEpMidiGeneral1 : UsbClassGeneric {
+        [Offset(3)]
         public byte MidiJacks { get; }
 
+        [Offset(4)]
         public List<byte> JackIds { get; } = new();
 
         public UsbClassEpMidiGeneral1(byte[] data) : base(data) {
@@ -295,14 +223,6 @@ namespace UsbAnalyzer.Usb.Audio {
                 }
             } catch {
             }
-        }
-
-        protected override TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return base.BuildTree([
-                new("Number of Jacks", MidiJacks),
-                new("Jacks", JackIds.Select((x,i) => new TreeViewEntry($"#{i}", x)).ToArray()),
-                ..children
-            ]);
         }
 
         protected override string GetSubtypeLabel() => "General V1";

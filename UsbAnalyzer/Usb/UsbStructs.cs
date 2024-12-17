@@ -4,9 +4,12 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Serialization;
 using System.Text;
 using System.Threading.Tasks;
+using System.Windows.Controls;
 using System.Windows.Navigation;
 using UsbAnalyzer.ViewData;
 
@@ -128,9 +131,6 @@ namespace UsbAnalyzer.Usb {
     }
 
     public enum EpSync {
-        [Description("Does not apply")]
-        None = -1,
-
         [Description("No synchronisation")]
         NoSync = 0,
 
@@ -144,8 +144,6 @@ namespace UsbAnalyzer.Usb {
 
     [Fallback("Reserved")]
     public enum EpUsage {
-        [Description("Does not apply")]
-        None = -1,
         Data = 0,
         Feedback = 1,
 
@@ -198,35 +196,36 @@ namespace UsbAnalyzer.Usb {
 
     [StructLayout(LayoutKind.Sequential)]
     public struct UsbSetup {
+        [Offset(0)]
         public byte RequestType { get; set; }
+        [Offset(1)]
+        [ReadableAccessor(nameof(RequestHelper))]
         public byte Request { get; set; }
+        [Offset(2)]
         public ushort Value { get; set; }
+        [Offset(4)]
         public ushort Index { get; set; }
+        [Offset(6)]
         public ushort Length { get; set; }
 
+        [GroupProperty(nameof(RequestType))]
         public DataTransferDirection Direction => (DataTransferDirection)((RequestType & 0b1000_0000) >> 7);
+        [GroupProperty(nameof(RequestType))]
         public DataTransferType Type => (DataTransferType)((RequestType & 0b0111_0000) >> 4);
+        [GroupProperty(nameof(RequestType))]
         public DataTransferTarget Target => (DataTransferTarget)((RequestType & 0b0000_1111));
+        
         public Requests ParsedRequest => (Requests)(RequestType << 8 | Request);
 
-        public TreeViewEntry BuildTree() {
-            return new("Setup", [
-                new("Request Type", $"0x{RequestType:X2}", Type.ToReadableString(), [
-                    new("Direction", "", Direction.ToReadableString()),
-                    new("Type", "", Type.ToReadableString()),
-                    new("Recipient", "", Target.ToReadableString())
-                ]),
-                new("Request", Request, ParsedRequest.ToReadableString()),
-                new("Value", Value),
-                new("Index", Index),
-                new("Length", Length)
-            ]);
-        }
+        public string RequestHelper => $"{ParsedRequest}";
     }
 
     public class UsbDescriptor {
-        public byte Length { get; }
-        public DescriptorTypes Type { get; }
+        [Offset(0)]
+        public byte? Length { get; }
+
+        [Offset(1)]
+        public DescriptorTypes? Type { get; }
 
         public byte[] Data { get; }
 
@@ -239,51 +238,71 @@ namespace UsbAnalyzer.Usb {
             } catch (ArgumentOutOfRangeException) {
             }
         }
-
-        public TreeViewEntry BuildTree() {
-            return BuildTree([]);
-        }
-
-        protected virtual TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return new(Type.ToReadableString(), (byte)Type, [
-                new("Length", Length), ..children
-            ]);
-        }
-
-        protected string ParseBcd(int value) {
-            var part1 = (value & 0xFF00) >> 8;
-            var part2 = value & 0x00FF;
-
-            var parsed = (part1 >> 4) * 10 + (part1 & 0xF) + (part2 >> 4) / 10f + (part2 & 0xF) / 100f;
-
-            return parsed.ToString("F1", CultureInfo.InvariantCulture);
-        }
     }
 
     public interface IUsbClassProvider {
-        public DeviceClass Class { get; }
-        public byte Subclass { get; }
-        public byte Protocol { get; }
+        public DeviceClass? Class { get; }
+        public byte? Subclass { get; }
+        public byte? Protocol { get; }
     }
 
     #region General Descriptors
 
     public class UsbDeviceDescriptor : UsbDescriptor, IUsbClassProvider {
-        public ushort UsbVersion { get; }
-        public DeviceClass Class { get; }
-        public byte Subclass { get; }
-        public byte Protocol { get; }
+        [BcdDisplay]
+        [Offset(3)]
+        public ushort? UsbVersion { get; }
 
-        public byte MaxPacketSize { get; }
-        public ushort Vendor { get; }
-        public ushort Product { get; }
-        public ushort Revision { get; }
+        [Helper]
+        [Description("Device Class")]
+        public string DeviceClass => UsbDescriptorParser.ParseClass(this);
 
-        public byte ManufacturerIdx { get; }
-        public byte ProductIdx { get; }
-        public byte SerialnumberIdx { get; }
+        [Offset(4)]
+        [GroupProperty(nameof(DeviceClass))]
+        public DeviceClass? Class { get; }
 
-        public byte Configurations { get; }
+        [Offset(5)]
+        [GroupProperty(nameof(DeviceClass))]
+        [ReadableAccessor(nameof(SubclassHelper))]
+        public byte? Subclass { get; }
+
+        [Offset(6)]
+        [GroupProperty(nameof(DeviceClass))]
+        [ReadableAccessor(nameof(ProtocolHelper))]
+        public byte? Protocol { get; }
+
+        [Offset(7)]
+        public byte? MaxPacketSize { get; }
+
+        [GroupProperty("Vendor ID")]
+        [Offset(8)]
+        public ushort? Vendor { get; }
+
+        [GroupProperty("Vendor ID")]
+        [Offset(10)]
+        public ushort? Product { get; }
+
+        [GroupProperty("Vendor ID")]
+        [Offset(12)]
+        public ushort? Revision { get; }
+
+        [StringTable]
+        [Offset(14)]
+        public byte? ManufacturerIdx { get; }
+
+        [StringTable]
+        [Offset(15)]
+        public byte? ProductIdx { get; }
+
+        [StringTable]
+        [Offset(16)]
+        public byte? SerialnumberIdx { get; }
+
+        [Offset(17)]
+        public byte? Configurations { get; }
+
+        public string SubclassHelper => UsbDescriptorParser.ParseSubclass(this);
+        public string ProtocolHelper => UsbDescriptorParser.ParseProtocol(this);
 
         public UsbDeviceDescriptor(byte[] data) : base(data) {
             try {
@@ -304,45 +323,42 @@ namespace UsbAnalyzer.Usb {
             } catch {
             }
         }
-
-        protected override TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return base.BuildTree([
-                new("USB-Version", UsbVersion, ParseBcd(UsbVersion)),
-                new("Device Class", "",
-                    UsbDescriptorParser.ParseClass(this), [
-                        new("Class", Class),
-                        new("Subclass", Subclass, UsbDescriptorParser.ParseSubclass(this)),
-                        new("Protocol", Protocol, UsbDescriptorParser.ParseProtocol(this))
-                    ]),
-                new("Max Packet Size", MaxPacketSize),
-                new("Vendor ID", [
-                    new("Vendor", Vendor),
-                    new("Product", Product),
-                    new("Device", Revision)
-                ]),
-                new("String Table Indices", [
-                    new("Manufacturer", ManufacturerIdx),
-                    new("Product", ProductIdx),
-                    new("Serial number", SerialnumberIdx)
-                ]),
-                new("Configurations", Configurations),
-                ..children
-            ]);
-        }
     }
 
     public class UsbConfigurationDescriptor : UsbDescriptor {
+        [Flags]
+        public enum EAttributes : byte {
+            [Description("Self Powered")]
+            SelfPowered = 0x40,
+
+            [Description("Remote Wakeup")]
+            RemoteWakeup = 0x02,
+        }
+
+        [Offset(2)]
+        [Description("Total Length")]
         public ushort TotalLength { get; }
+
+        [Offset(4)]
         public byte Interfaces { get; }
+
+        [Offset(5)]
+        [Description("Configuration ID")]
         public byte ConfigurationId { get; }
+
+        [Offset(6)]
+        [StringTable]
         public byte ConfigurationIdx { get; }
-        public byte Attributes { get; }
+
+        [Offset(7)]
+        public EAttributes Attributes { get; }
+
+        [Offset(8)]
+        [Description("Max Power")]
+        [ReadableAccessor(nameof(MaxPowerReadable))]
         public byte MaxPower { get; }
 
-        public bool SelfPowered => (Attributes & 0x40) != 0;
-        public bool RemoteWakeup => (Attributes & 0x20) != 0;
-
-        public int MaxPowermA => MaxPower * 2;
+        public string MaxPowerReadable => $"{MaxPower * 2}mA";
 
         public UsbConfigurationDescriptor(byte[] data) : base(data) {
             try {
@@ -352,39 +368,47 @@ namespace UsbAnalyzer.Usb {
                 Interfaces = data[2];
                 ConfigurationId = data[3];
                 ConfigurationIdx = data[4];
-                Attributes = data[5];
+                Attributes = (EAttributes)data[5];
                 MaxPower = data[6];
             } catch {
             }
         }
-
-        protected override TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return base.BuildTree([
-                new("Total Length", TotalLength),
-                new("Interfaces", Interfaces),
-                new("Configuration ID", ConfigurationId),
-                new("String Table Indices", [
-                    new("Configuration", ConfigurationIdx)
-                ]),
-                new("Attributes", Attributes, [
-                    new("Self Powered", "", $"{SelfPowered}"),
-                    new("Remote Wakeup", "", $"{RemoteWakeup}")
-                ]),
-                new("Max Power", MaxPower, $"{MaxPowermA}mA"),
-                ..children
-            ]);
-        }
     }
 
     public class UsbInterfaceDescriptor : UsbDescriptor, IUsbClassProvider {
+        [Offset(2)]
         public byte InterfaceId { get; }
-        public byte AlternateId { get; }
-        public byte Endpoints { get; }
-        public DeviceClass Class { get; }
-        public byte Subclass { get; }
-        public byte Protocol { get; }
 
+        [Offset(3)]
+        public byte AlternateId { get; }
+
+        [Offset(4)]
+        public byte Endpoints { get; }
+
+        [Helper]
+        [Description("Interface Class")]
+        public string InterfaceClass => UsbDescriptorParser.ParseClass(this);
+
+        [Offset(5)]
+        [GroupProperty(nameof(InterfaceClass))]
+        public DeviceClass? Class { get; }
+
+        [Offset(6)]
+        [GroupProperty(nameof(InterfaceClass))]
+        [ReadableAccessor(nameof(SubclassHelper))]
+        public byte? Subclass { get; }
+
+        [Offset(7)]
+        [GroupProperty(nameof(InterfaceClass))]
+        [ReadableAccessor(nameof(ProtocolHelper))]
+        public byte? Protocol { get; }
+
+        [Offset(8)]
+        [StringTable]
         public byte InterfaceIdx { get; }
+
+        public string SubclassHelper => UsbDescriptorParser.ParseSubclass(this);
+        public string ProtocolHelper => UsbDescriptorParser.ParseProtocol(this);
 
         public UsbInterfaceDescriptor(byte[] data) : base(data) {
             try {
@@ -399,27 +423,10 @@ namespace UsbAnalyzer.Usb {
             } catch {
             }
         }
-
-        protected override TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return base.BuildTree([
-                new("Interface ID", InterfaceId),
-                new("Alternate ID", AlternateId),
-                new("Endpoints", Endpoints),
-                new("Interface Class", "",
-                    UsbDescriptorParser.ParseClass(this), [
-                        new("Class", Class),
-                        new("Subclass", Subclass, UsbDescriptorParser.ParseSubclass(this)),
-                        new("Protocol", Protocol, UsbDescriptorParser.ParseProtocol(this))
-                    ]),
-                new("String Table Indices", [
-                    new("Interface", InterfaceIdx)
-                ]),
-                ..children
-            ]);
-        }
     }
 
     public class UsbStringDescriptor : UsbDescriptor {
+        [Offset(2)]
         public string Value { get; }
 
         public UsbStringDescriptor(byte[] data) : base(data) {
@@ -429,16 +436,10 @@ namespace UsbAnalyzer.Usb {
             } catch {
             }
         }
-
-        protected override TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return base.BuildTree([
-                new TreeViewEntry("Value", "", Value),
-                ..children
-            ]);
-        }
     }
 
     public class UsbStringListDescriptor : UsbDescriptor {
+        [Offset(2)]
         public List<ushort> LangIDs { get; } = new();
 
         public UsbStringListDescriptor(byte[] data) : base(data) {
@@ -451,29 +452,37 @@ namespace UsbAnalyzer.Usb {
             } catch {
             }
         }
-
-        protected override TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return base.BuildTree(LangIDs.Select(x => new TreeViewEntry("LCID", x))
-                .Concat(children).ToArray());
-        }
     }
 
     public class UsbEndpointDescriptor : UsbDescriptor {
+        [Offset(2)]
+        [HideValue]
         public byte EndpointAddress { get; }
+
+        [Offset(3)]
+        [HideValue]
         public byte Attributes { get; }
+
+        [Offset(4)]
         public ushort MaxPacketSize { get; }
+
+        [Offset(6)]
         public byte Interval { get; }
 
-
+        [GroupProperty(nameof(EndpointAddress))]
         public EpDirection Direction => (EpDirection)((EndpointAddress & 0x80) >> 7);
-        public int EndpointNumber => EndpointAddress & 0x0F;
+
+        [GroupProperty(nameof(EndpointAddress))]
+        public byte EndpointNumber => (byte)(EndpointAddress & 0x0F);
+
+        [GroupProperty(nameof(Attributes))]
         public EpTransferType TransferType => (EpTransferType)(Attributes & 0x03);
 
-        public EpSync SyncType =>
-            TransferType == EpTransferType.Isochronous ? (EpSync)((Attributes & 0x0C) >> 2) : EpSync.None;
+        [GroupProperty(nameof(Attributes))]
+        public EpSync SyncType => (EpSync)((Attributes & 0x0C) >> 2);
 
-        public EpUsage UsageType =>
-            TransferType == EpTransferType.Isochronous ? (EpUsage)((Attributes & 0x30) >> 4) : EpUsage.None;
+        [GroupProperty(nameof(Attributes))]
+        public EpUsage UsageType => (EpUsage)((Attributes & 0x30) >> 4);
 
         public UsbEndpointDescriptor(byte[] data) : base(data) {
             try {
@@ -485,27 +494,6 @@ namespace UsbAnalyzer.Usb {
             } catch {
             }
         }
-
-        protected override TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return base.BuildTree([
-                new("Address", EndpointAddress, [
-                    new("Address", "", EndpointNumber.ToString()),
-                    new("Direction", "", Direction.ToReadableString())
-                ]),
-                new("Attributes", Attributes, TransferType == EpTransferType.Isochronous
-                    ? [
-                        new("Transfer Type", "", TransferType.ToReadableString()),
-                        new("Sync Type", "", SyncType.ToReadableString()),
-                        new("Usage Type", "", UsageType.ToReadableString())
-                    ]
-                    : [
-                        new("Transfer Type", "", TransferType.ToReadableString())
-                    ]),
-                new("Max Packet Size", MaxPacketSize),
-                new("Interval", Interval),
-                ..children
-            ]);
-        }
     }
 
     #endregion
@@ -513,20 +501,17 @@ namespace UsbAnalyzer.Usb {
     #region Class Specific Descriptors
 
     public class UsbClassGeneric : UsbDescriptor {
+        [Offset(2)]
+        [ReadableAccessor(nameof(SubTypeReadable))]
         public byte SubType { get; }
+
+        public string SubTypeReadable => GetSubtypeLabel();
 
         public UsbClassGeneric(byte[] data) : base(data) {
             try {
                 SubType = data[2];
             } catch {
             }
-        }
-
-        protected override TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return base.BuildTree([
-                new("Subtype", SubType, GetSubtypeLabel()),
-                ..children
-            ]);
         }
 
         protected virtual string GetSubtypeLabel() => "Unknown";

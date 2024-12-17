@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -7,6 +8,8 @@ using UsbAnalyzer.ViewData;
 
 namespace UsbAnalyzer.Usb.Cdc {
     public class UsbClassCdcHeader : UsbClassGeneric {
+        [Offset(3)]
+        [BcdDisplay]
         public ushort Version { get; }
 
         public UsbClassCdcHeader(byte[] data) : base(data) {
@@ -16,19 +19,14 @@ namespace UsbAnalyzer.Usb.Cdc {
             }
         }
 
-        protected override TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return base.BuildTree([
-                new("Version", Version, ParseBcd(Version)),
-                ..children
-            ]);
-        }
-
         protected override string GetSubtypeLabel() => "Header";
     }
 
     public class UsbClassCdcUnion : UsbClassGeneric {
+        [Offset(3)]
         public byte ControlInterface { get; }
 
+        [Offset(4)]
         public List<byte> SubInterface { get; } = new();
 
         public UsbClassCdcUnion(byte[] data) : base(data) {
@@ -42,136 +40,133 @@ namespace UsbAnalyzer.Usb.Cdc {
             }
         }
 
-        protected override TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return base.BuildTree([
-                new("Control Interface", ControlInterface),
-                new("Sub Interfaces", SubInterface.Select((x, i) => new TreeViewEntry($"#{i}", x)).ToArray()),
-                ..children
-            ]);
-        }
-
         protected override string GetSubtypeLabel() => "Union";
     }
 
     public class UsbClassCdcAcm : UsbClassGeneric {
-        public byte Capabilities { get; }
+        [Flags]
+        public enum ECaps : byte {
+            [Description("*CommFeature")]
+            CommFeature = 0x01,
+
+            [Description("*LineCoding")]
+            LineCoding = 0x02,
+            SendBreak = 0x04,
+            NetworkConnect = 0x08
+        }
+
+        [Offset(3)]
+        public ECaps Capabilities { get; }
 
         public UsbClassCdcAcm(byte[] data) : base(data) {
             try {
-                Capabilities = data[3];
+                Capabilities = (ECaps)data[3];
             } catch {
             }
-        }
-
-        protected override TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return base.BuildTree([
-                new("Capabilities", Capabilities, [
-                    new("*CommFeature", "", $"{(Capabilities & 0x01) != 0}"),
-                    new("*LineCoding", "", $"{(Capabilities & 0x02) != 0}"),
-                    new("SendBreak", "", $"{(Capabilities & 0x04) != 0}"),
-                    new("NetworkConnect", "", $"{(Capabilities & 0x08) != 0}")
-                ]),
-                ..children
-            ]);
         }
 
         protected override string GetSubtypeLabel() => "Abstract Control Management";
     }
 
     public class UsbClassCdcEthernet : UsbClassGeneric {
+        [Flags]
+        public enum ENetworkStatistics : uint {
+            XmitOk = 0x0001,
+            RcvOk = 0x0002,
+            XmitError = 0x0004,
+            RcvError = 0x0008,
+            RcvNoBuffer = 0x0010,
+            DirectedBytesXmit = 0x0020,
+            DirectedFramesXmit = 0x0040,
+            MulticastBytesXmit = 0x0080,
+            MulticastFramesXmit = 0x0100,
+            BroadcastBytesXmit = 0x0200,
+            BroadcastFramesXmit = 0x0400,
+            DirectedBytesRcv = 0x0800,
+            DirectedFramesRcv = 0x1000,
+            MulticastBytesRcv = 0x2000,
+            MulticastFramesRcv = 0x4000,
+            BroadcastBytesRcv = 0x8000,
+            BroadcastFramesRcv = 0x10000,
+            RcvCrcError = 0x20000,
+            TransmitQueueLength = 0x40000,
+            RcvErrorAlignment = 0x80000,
+            XmitOneCollision = 0x100000,
+            XmitMoreCollisions = 0x200000,
+            XmitDeferred = 0x400000,
+            XmitMaxCollisions = 0x800000,
+            RcvOverrun = 0x1000000,
+            XmitUnderrun = 0x2000000,
+            XmitHeartbeatFailure = 0x4000000,
+            XmitTimesCrsLost = 0x8000000,
+            XmitLateCollisions = 0x10000000
+        }
+
+        [Offset(3)]
+        [StringTable]
+        [Description("Mac Address")]
         public byte MacAddrIdx { get; }
-        public uint Statistics { get; }
+
+        [Offset(4)]
+        public ENetworkStatistics Statistics { get; }
+
+        [Offset(8)]
         public ushort MaxSegmentSize { get; }
+
+        [Offset(10)]
         public ushort NumberMcFilters { get; }
+
+        [Offset(12)]
         public byte NumberPowerFilters { get; }
+
+        [GroupProperty(nameof(NumberMcFilters))]
+        public bool PerfectFilter => (NumberMcFilters & 0x8000) != 0;
+        [GroupProperty(nameof(NumberMcFilters))]
+        public int NumFilters => (NumberMcFilters & 0x7FFF);
 
         public UsbClassCdcEthernet(byte[] data) : base(data) {
             try {
                 MacAddrIdx = data[3];
-                Statistics = (uint)(data[4] | data[5] << 8 | data[6] << 16 | data[7] << 24);
+                Statistics = (ENetworkStatistics)(data[4] | data[5] << 8 | data[6] << 16 | data[7] << 24);
                 MaxSegmentSize = (ushort)(data[8] | data[9] << 8);
-                NumberMcFilters = (ushort)(data[9] | data[10] << 8);
-                NumberPowerFilters = data[11];
+                NumberMcFilters = (ushort)(data[10] | data[11] << 8);
+                NumberPowerFilters = data[12];
             } catch {
             }
-        }
-
-        protected override TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return base.BuildTree([
-                new("String Table Indices", [
-                    new("Mac Address", MacAddrIdx)
-                ]),
-                new("Statistics", Statistics, [
-                    new("XMIT_OK", "", $"{(Statistics & 0x0001) != 0}"),
-                    new("RVC_OK", "", $"{(Statistics & 0x0002) != 0}"),
-                    new("XMIT_ERROR", "", $"{(Statistics & 0x0004) != 0}"),
-                    new("RCV_ERROR", "", $"{(Statistics & 0x0008) != 0}"),
-                    new("RCV_NO_BUFFER", "", $"{(Statistics & 0x0010) != 0}"),
-                    new("DIRECTED_BYTES_XMIT", "", $"{(Statistics & 0x0020) != 0}"),
-                    new("DIRECTED_FRAMES_XMIT", "", $"{(Statistics & 0x0040) != 0}"),
-                    new("MULTICAST_BYTES_XMIT", "", $"{(Statistics & 0x0080) != 0}"),
-                    new("MULTICAST_FRAMES_XMIT", "", $"{(Statistics & 0x0100) != 0}"),
-                    new("BROADCAST_BYTES_XMIT", "", $"{(Statistics & 0x0200) != 0}"),
-                    new("BROADCAST_FRAMES_XMIT", "", $"{(Statistics & 0x0400) != 0}"),
-                    new("DIRECTED_BYTES_RCV", "", $"{(Statistics & 0x0800) != 0}"),
-                    new("DIRECTED_FRAMES_RCV", "", $"{(Statistics & 0x1000) != 0}"),
-                    new("MULTICAST_BYTES_RCV", "", $"{(Statistics & 0x2000) != 0}"),
-                    new("MULTICAST_FRAMES_RCV", "", $"{(Statistics & 0x4000) != 0}"),
-                    new("BROADCAST_BYTES_RCV", "", $"{(Statistics & 0x8000) != 0}"),
-                    new("BROADCAST_FRAMES_RCV", "", $"{(Statistics & 0x10000) != 0}"),
-                    new("RCV_CRC_ERROR", "", $"{(Statistics & 0x20000) != 0}"),
-                    new("TRANSMIT_QUEUE_LENGTH", "", $"{(Statistics & 0x40000) != 0}"),
-                    new("RCV_ERROR_ALIGNMENT", "", $"{(Statistics & 0x80000) != 0}"),
-                    new("XMIT_ONE_COLLISION", "", $"{(Statistics & 0x100000) != 0}"),
-                    new("XMIT_MORE_COLLISIONS", "", $"{(Statistics & 0x200000) != 0}"),
-                    new("XMIT_DEFERRED", "", $"{(Statistics & 0x400000) != 0}"),
-                    new("XMIT_MAX_COLLISIONS", "", $"{(Statistics & 0x800000) != 0}"),
-                    new("RCV_OVERRUN", "", $"{(Statistics & 0x1000000) != 0}"),
-                    new("XMIT_UNDERRUN", "", $"{(Statistics & 0x2000000) != 0}"),
-                    new("XMIT_HEARTBEAT_FAILURE", "", $"{(Statistics & 0x4000000) != 0}"),
-                    new("XMIT_TIMES_CRS_LOST", "", $"{(Statistics & 0x8000000) != 0}"),
-                    new("XMIT_LATE_COLLISIONS", "", $"{(Statistics & 0x10000000) != 0}")
-                ]),
-                new("Max Segment Size", MaxSegmentSize),
-                new("Multicast Filters", NumberMcFilters, [
-                    new("Perfect Filtering", "", $"{(NumberMcFilters & 0x8000) != 0}"),
-                    new("Number of Filters", "", $"{NumberMcFilters & 0x7FFF}")
-                ]),
-                new("Power Filters", NumberPowerFilters),
-                ..children
-            ]);
         }
 
         protected override string GetSubtypeLabel() => "Ethernet Networking";
     }
 
     public class UsbClassCdcNcm : UsbClassGeneric {
+        [Flags]
+        public enum ECapabilitiesFlags {
+            [Description("Packet Filters")]
+            PacketFilters = 0x01,
+            [Description("*NetAddress")]
+            NetAddress = 0x02,
+            [Description("Encapsulated Commands")]
+            EncapsulatedCommands = 0x04,
+            [Description("*MaxDatagramSize")]
+            MaxDatagramSize = 0x08,
+            [Description("*CrcMode")]
+            CrcMode = 0x10,
+            [Description("8-byte NtbInputSize")]
+            LargeNtbInputSize = 0x20
+        }
+
+        [Offset(3)]
         public ushort Version { get; }
-        public byte Capabilities { get; }
+        [Offset(5)]
+        public ECapabilitiesFlags Capabilities { get; }
 
         public UsbClassCdcNcm(byte[] data) : base(data) {
             try {
                 Version = (ushort)(data[3] | data[4] << 8);
-                Capabilities = data[5];
+                Capabilities = (ECapabilitiesFlags)data[5];
             } catch {
             }
         }
-
-        protected override TreeViewEntry BuildTree(TreeViewEntry[] children) {
-            return base.BuildTree([
-                new("Version", Version, ParseBcd(Version)),
-                new("Capabilities", Capabilities, [
-                    new("Packet Filters", "", $"{(Capabilities & 0x01) != 0}"),
-                    new("*NetAddress", "", $"{(Capabilities & 0x02) != 0}"),
-                    new("Encapsulated Commands", "", $"{(Capabilities & 0x04) != 0}"),
-                    new("*MaxDatagramSize", "", $"{(Capabilities & 0x08) != 0}"),
-                    new("*CrcMode", "", $"{(Capabilities & 0x10) != 0}"),
-                    new("8-byte NtbInputSize", "", $"{(Capabilities & 0x20) != 0}")
-                ]),
-                ..children
-            ]);
-        }
-
         protected override string GetSubtypeLabel() => "NCM";
     }
 }

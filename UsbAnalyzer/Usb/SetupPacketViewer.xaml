@@ -193,6 +193,13 @@
                                                 </Setter.Value>
                                             </Setter>
                                         </DataTrigger>
+                                        <DataTrigger Binding="{Binding IsInvalid}" Value="true">
+                                            <Setter Property="Background">
+                                                <Setter.Value>
+                                                    <SolidColorBrush Color="DarkSalmon"/>
+                                                </Setter.Value>
+                                            </Setter>
+                                        </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
                             </Grid.Style>
