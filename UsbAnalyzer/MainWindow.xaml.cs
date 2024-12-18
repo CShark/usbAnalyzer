@@ -18,7 +18,7 @@ namespace UsbAnalyzer {
     /// Interaction logic for MainWindow.xaml
     /// </summary>
     public partial class MainWindow : Window {
-        private ObservableCollection<UsbLogEntry> _originalLogEntries;
+        private ObservableCollection<UsbLogEntry> _originalLogEntries = new();
         private ICollectionView _rawLogEntries;
 
         public static readonly DependencyProperty SelectedEntryProperty = DependencyProperty.Register(
@@ -62,6 +62,21 @@ namespace UsbAnalyzer {
 
         private void RawFilter_Changed(object sender, RoutedEventArgs e) {
             _rawLogEntries?.Refresh();
+        }
+
+        private void ExportWireshark_OnClick(object sender, RoutedEventArgs e) {
+            if (_originalLogEntries.Any()) {
+                var dlg = new SaveFileDialog();
+                dlg.Title = "Export Wireshark PCap";
+                dlg.Filter = "PCap-Files|*.pcap";
+
+                if (dlg.ShowDialog(this) == true) {
+                    var exporter = new Wireshark.PcapExporter();
+                    using (var file = new FileStream(dlg.FileName, FileMode.Create, FileAccess.ReadWrite)) {
+                        exporter.Export(file, _originalLogEntries);
+                    }
+                }
+            }
         }
     }
 }

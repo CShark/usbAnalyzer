@@ -59,6 +59,8 @@ namespace UsbAnalyzer {
         public byte Endpoint { get; }
         public ushort? Frame { get; }
 
+        public TimeSpan Timestamp { get; }
+
         public byte[] Data { get; }
 
         public UsbLogEntry[] RawEntries { get; }
@@ -91,6 +93,7 @@ namespace UsbAnalyzer {
                 Data = entries.FirstOrDefault(x => x.Pid == PIDTypes.Data0 || x.Pid == PIDTypes.Data1)?.Data ?? [];
             }
 
+            Timestamp = entries.First().Timestamp;
             RawEntries = entries.ToArray();
         }
     }
@@ -100,6 +103,8 @@ namespace UsbAnalyzer {
         public byte Address { get; protected set; }
         public byte Endpoint { get; protected set; }
 
+        public TimeSpan Timestamp { get; protected set; }
+
         public UsbLogPacket[] RawPackets { get; protected set; }
 
         protected UsbLogPacketGroup() {
@@ -108,6 +113,8 @@ namespace UsbAnalyzer {
 
     public class UsbLogPacketGroupSetup : UsbLogPacketGroup {
         public UsbSetup SetupData { get; }
+
+        public byte[] SetupBytes { get; }
 
         public List<UsbDescriptor> Descriptors { get; } = new();
 
@@ -128,6 +135,8 @@ namespace UsbAnalyzer {
                 Address = (byte)SetupData.Value;
             }
 
+            SetupBytes = data[..8];
+
             if (data.Length > 8) {
                 data = data[8..];
 
@@ -146,6 +155,7 @@ namespace UsbAnalyzer {
             }
 
             RawPackets = packets.ToArray();
+            Timestamp = RawPackets[0].Timestamp;
         }
     }
 

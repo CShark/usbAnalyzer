@@ -21,6 +21,7 @@
 
         <ToolBar>
             <Button Click="OpenLog_OnClick">Open Log</Button>
+            <Button Click="ExportWireshark_OnClick">Export Wireshark</Button>
         </ToolBar>
 
         <Grid Grid.Row="1">
