@@ -93,7 +93,34 @@ namespace UsbAnalyzer.Wireshark {
                 // Iso packet
             } else {
                 // Bulk / Interrupt
+                writer.Write(BuildBulkIntPacket(packet));
             }
+        }
+
+        private byte[] BuildBulkIntPacket(UsbLogPacketGroup data) {
+            var bytes = data.RawPackets.SelectMany(x => x.Data).ToArray();
+            var header = new PcapPacket(data.Timestamp);
+            var usbHeader = new UsbPcapHeaderPacket {
+                DataLength = (uint)bytes.Length,
+                IrpId = (ulong)data.GetHashCode(),
+                Info = (byte)(data.Type == PacketTypes.Out ? 0 : 1),
+                Bus = 0,
+                Device = data.Address,
+                Endpoint = data.Endpoint,
+                Transfer = data.PipeType == PipeType.Interrupt ? ETransfer.Interrupt : ETransfer.Bulk,
+                Function = 9
+            };
+
+            usbHeader.Len = (ushort)Marshal.SizeOf(usbHeader);
+            header.CaptureLength = header.OriginalLength = usbHeader.Len + usbHeader.DataLength;
+
+            var result = new byte[header.CaptureLength + Marshal.SizeOf(header)];
+            var hData = StructToBytes(header);
+            var uData = StructToBytes(usbHeader);
+            hData.CopyTo(result, 0);
+            uData.CopyTo(result, hData.Length);
+            bytes.CopyTo(result, hData.Length + uData.Length);
+            return result;
         }
 
         private byte[] BuildControlPacket(UsbLogPacketGroupSetup setup) {
@@ -142,12 +169,12 @@ namespace UsbAnalyzer.Wireshark {
                         DataLength = (uint)inData.Aggregate(0, (l, x) => l + x.Data.Length),
                         IrpId = (ulong)setup.GetHashCode(),
                         State = inData.LastOrDefault()?.Response == PacketResponses.NAK ? EState.Error : EState.Success,
-                        Info=1,
-                        Bus=0,
+                        Info = 1,
+                        Bus = 0,
                         Device = setup.Address,
                         Endpoint = setup.Endpoint,
                         Transfer = ETransfer.Control,
-                        Function= 0x08
+                        Function = 0x08
                     },
                     Stage = ECtrlStage.Complete
                 };

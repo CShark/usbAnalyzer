@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO.Pipelines;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -35,6 +36,13 @@ namespace UsbAnalyzer {
         ACK,
         NAK,
         STALL,
+    }
+
+    public enum PipeType : byte {
+        Control,
+        Isochronous,
+        Bulk,
+        Interrupt,
     }
 
     public record UsbLogEntry(
@@ -100,6 +108,9 @@ namespace UsbAnalyzer {
 
     public class UsbLogPacketGroup {
         public PacketTypes Type { get; protected set; }
+
+        public PipeType PipeType { get; protected set; }
+
         public byte Address { get; protected set; }
         public byte Endpoint { get; protected set; }
 
@@ -107,7 +118,18 @@ namespace UsbAnalyzer {
 
         public UsbLogPacket[] RawPackets { get; protected set; }
 
-        protected UsbLogPacketGroup() {
+        public UsbLogPacketGroup(List<UsbLogPacket> packets) {
+            RawPackets = packets.ToArray();
+            Timestamp = packets.First().Timestamp;
+            Address = packets.First().Address;
+            Endpoint = packets.First().Endpoint;
+            Type = packets.First().Type;
+
+            if (packets.Last().Response == PacketResponses.Unknown) {
+                PipeType = PipeType.Isochronous;
+            } else {
+                PipeType = packets.Count > 1 ? PipeType.Bulk : PipeType.Interrupt;
+            }
         }
     }
 
@@ -118,11 +140,7 @@ namespace UsbAnalyzer {
 
         public List<UsbDescriptor> Descriptors { get; } = new();
 
-        public UsbLogPacketGroupSetup(List<UsbLogPacket> packets) {
-            Type = packets.First().Type;
-            Address = packets.First().Address;
-            Endpoint = packets.First().Endpoint;
-
+        public UsbLogPacketGroupSetup(List<UsbLogPacket> packets) : base(packets) {
             var data = packets.SelectMany(x => x.Data).ToArray();
 
             var handle = GCHandle.Alloc(data, GCHandleType.Pinned);
@@ -154,8 +172,7 @@ namespace UsbAnalyzer {
                 }
             }
 
-            RawPackets = packets.ToArray();
-            Timestamp = RawPackets[0].Timestamp;
+            PipeType = PipeType.Control;
         }
     }
 

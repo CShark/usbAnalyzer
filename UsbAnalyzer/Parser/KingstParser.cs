@@ -49,26 +49,51 @@ namespace UsbAnalyzer.Parser {
                 }
             }
 
-            var groupStack = new List<UsbLogPacket>();
+            var groupStack = new List<UsbLogPacket>[2];
+            groupStack[0] = new();
+            groupStack[1] = new();
             foreach (var bucket in packetBuckets) {
-                if ((bucket.Key & 0x00FF) == 0x00) {
-                    foreach (var packet in bucket.Value) {
+                foreach (var packet in bucket.Value) {
+                    if (packet.Endpoint == 0) {
                         if (packet.Type == PacketTypes.Setup) {
-                            ComposeSetupGroup();
-                            groupStack.Add(packet);
+                            ComposeSetupGroup(groupStack[0]);
+                            groupStack[0].Add(packet);
                         } else {
-                            groupStack.Add(packet);
+                            groupStack[0].Add(packet);
+                        }
+                    } else {
+                        if (packet.Response == PacketResponses.ACK) {
+                            if (packet.Endpoint != groupStack[1].FirstOrDefault()?.Endpoint) {
+                                ComposeNormalGroup(groupStack[1]);
+                            }
+
+                            if (groupStack[1].Any() && packet.Type != groupStack[1][0].Type) {
+                                ComposeNormalGroup(groupStack[1]);
+                            }
+
+                            groupStack[1].Add(packet);
+
+                            if (packet.Data.Length == 0) {
+                                ComposeNormalGroup(groupStack[1]);
+                            }
                         }
                     }
-
-                    ComposeSetupGroup();
                 }
-            }
 
+                ComposeSetupGroup(groupStack[0]);
+            }
 
             return entries;
 
-            void ComposeSetupGroup() {
+            void ComposeNormalGroup(List<UsbLogPacket> groupStack) {
+                if (groupStack.Any()) {
+                    var group = new UsbLogPacketGroup(groupStack);
+                    groupStack.ForEach(x => x.PacketGroup = group);
+                    groupStack.Clear();
+                }
+            }
+
+            void ComposeSetupGroup(List<UsbLogPacket> groupStack) {
                 if (groupStack.Any()) {
                     var group = new UsbLogPacketGroupSetup(groupStack);
                     groupStack.ForEach(x => x.PacketGroup = group);
@@ -82,7 +107,7 @@ namespace UsbAnalyzer.Parser {
                     packetStack.ForEach(x => x.Packet = packet);
                     packetStack.Clear();
 
-                    var id = packet.Address << 8 | packet.Endpoint;
+                    var id = packet.Address << 8;
 
                     if (!packetBuckets.ContainsKey(id)) {
                         packetBuckets[id] = new();
